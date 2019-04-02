@@ -16,7 +16,7 @@ from ppo import PPO
 from vae.models import ConvVAE, MlpVAE
 from CarlaEnv.carla_env import CarlaEnv
 from CarlaEnv.wrappers import angle_diff, carla_as_array
-from utils import VideoRecorder, compute_gae
+from utils import VideoRecorder, compute_gae, discount, RunningMeanVar
 
 def preprocess_frame(frame):
     frame = frame.astype(np.float32) / 255.0
@@ -98,6 +98,8 @@ def make_env(title=None, frame_skip=0, encode_state_fn=None):
     env.seed(0)
     return env
 
+intrinsic_rmv = RunningMeanVar()
+
 def test_agent(test_env, model, video_filename=None):
     # Init test env
     state, terminal, total_reward = test_env.reset(), False, 0
@@ -119,7 +121,7 @@ def test_agent(test_env, model, video_filename=None):
         test_env.extra_info.append("")
 
         # Take deterministic actions at test time (noise_scale=0)
-        action, _ = model.predict([state], greedy=True)
+        action, _, _ = model.predict([state], greedy=True)
         state, reward, terminal, info = test_env.step(action)
 
         if info["closed"] == True:
@@ -199,6 +201,7 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
     model = PPO(input_shape, num_actions, action_min, action_max,
                 learning_rate=learning_rate, lr_decay=lr_decay, epsilon=ppo_epsilon, initial_std=0.1,
                 value_scale=value_scale, entropy_scale=entropy_scale,
+                int_coeff=0.0, ext_coeff=1.0,
                 output_dir=os.path.join("models", model_name))
 
     # Prompt to load existing model if any
@@ -239,9 +242,9 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
         # While episode not done
         print(f"Episode {episode_idx} (Step {model.get_train_step_idx()})")
         while not terminal_state:
-            states, taken_actions, values, rewards, dones = [], [], [], [], []
+            states, taken_actions, extrinsic_values, intrinsic_values, extrinsic_rewards, dones = [], [], [], [], [], []
             for _ in range(horizon):
-                action, value = model.predict([state], write_to_summary=True)
+                action, extrinsic_value, intrinsic_value = model.predict([state], write_to_summary=True)
 
                 # Perform action
                 env.extra_info.append("Episode {}".format(episode_idx))
@@ -258,33 +261,50 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
                 # Store state, action and reward
                 states.append(state)         # [T, *input_shape]
                 taken_actions.append(action) # [T,  num_actions]
-                values.append(value)         # [T]
-                rewards.append(reward)       # [T]
+                intrinsic_values.append(intrinsic_value)         # [T]
+                extrinsic_values.append(extrinsic_value)         # [T]
+                extrinsic_rewards.append(reward)       # [T]
                 dones.append(terminal_state) # [T]
                 state = new_state
 
                 if terminal_state:
                     break
 
+            states        = np.array(states)
+
             # Calculate last value (bootstrap value)
-            _, last_values = model.predict([state]) # []
-            
+            _, last_extrinsic_value, last_intrinsic_value = model.predict([state]) # []
+
             # Compute GAE
-            advantages = compute_gae(rewards, values, last_values, dones, discount_factor, gae_lambda)
-            returns = advantages + values
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            extrinsic_advantages = compute_gae(extrinsic_rewards, extrinsic_values, last_extrinsic_value, dones, discount_factor, gae_lambda)
+            extrinsic_returns = extrinsic_advantages + extrinsic_values
+            extrinsic_advantages = (extrinsic_advantages - extrinsic_advantages.mean()) / (extrinsic_advantages.std() + 1e-8)
+
+            # Get intrinsic rewards for input states
+            intrinsic_rewards = model.sess.run(model.intrinsic_reward, feed_dict={model.input_states: states})
+
+            # Normalize intrinsic rewards with running variance
+            for v in discount(intrinsic_rewards, discount_factor).flatten():
+                intrinsic_rmv.update(v)
+            intrinsic_rewards = intrinsic_rewards / np.sqrt(intrinsic_rmv.var)
+            intrinsic_advantages = compute_gae(intrinsic_rewards, intrinsic_values, last_intrinsic_value, False, discount_factor, gae_lambda)
+            intrinsic_returns = intrinsic_advantages + intrinsic_values
+            intrinsic_advantages = (intrinsic_advantages - intrinsic_advantages.mean()) / (intrinsic_advantages.std() + 1e-8)
 
             # Flatten arrays
-            states        = np.array(states)
             taken_actions = np.array(taken_actions)
-            returns       = np.array(returns)
-            advantages    = np.array(advantages)
+            extrinsic_returns       = np.array(extrinsic_returns)
+            intrinsic_returns       = np.array(intrinsic_returns)
+            extrinsic_advantages    = np.array(extrinsic_advantages)
+            intrinsic_advantages    = np.array(intrinsic_advantages)
 
-            T = len(rewards)
+            T = len(extrinsic_rewards)
             assert states.shape == (T, *input_shape)
             assert taken_actions.shape == (T, num_actions)
-            assert returns.shape == (T,)
-            assert advantages.shape == (T,)
+            assert extrinsic_returns.shape == (T,)
+            assert intrinsic_returns.shape == (T,)
+            assert extrinsic_advantages.shape == (T,)
+            assert intrinsic_advantages.shape == (T,)
 
             # Train for some number of epochs
             model.update_old_policy() # θ_old <- θ
@@ -302,7 +322,8 @@ def train(params, model_name, save_interval=10, eval_interval=10, record_eval=Tr
 
                     # Optimize network
                     model.train(states[mb_idx], taken_actions[mb_idx],
-                                returns[mb_idx], advantages[mb_idx])
+                                extrinsic_returns[mb_idx], intrinsic_returns[mb_idx],
+                                extrinsic_advantages[mb_idx], intrinsic_advantages[mb_idx])
 
         # Write episodic values
         model.write_value_to_summary("train/score", 0, episode_idx)

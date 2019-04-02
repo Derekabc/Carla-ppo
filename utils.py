@@ -114,28 +114,19 @@ def compute_gae_old(rewards, values, bootstrap_value, terminals, gamma, lam):
         delta = rewards[i] + gamma * values[i + 1] * (1.0 - terminals[i]) - values[i]
         advantages[i] = last_gae_lam = delta + gamma * lam * (1.0 - terminals[i]) * last_gae_lam
     return advantages
-    
 
-# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm
-# for a new value newValue, compute the new count, new mean, the new M2.
-# mean accumulates the mean of the entire dataset
-# M2 aggregates the squared distance from the mean
-# count aggregates the number of samples seen so far
-def update(existingAggregate, newValue):
-    (count, mean, M2) = existingAggregate
-    count += 1 
-    delta = newValue - mean
-    mean += delta / count
-    delta2 = newValue - mean
-    M2 += delta * delta2
+# https://en.wikipedia.org/wiki/Algorithms_for_calculating_variance#Welford's_online_algorithm    
+class RunningMeanVar(object):
+    def __init__(self):
+        self.reset()
 
-    return (count, mean, M2)
+    def update(self, newValue):
+        self.count += 1 
+        delta = newValue - self.mean
+        self.mean += delta / self.count
+        delta2 = newValue - self.mean
+        self.m2 += delta * delta2
+        self.var = self.m2 / self.count
 
-# retrieve the mean, variance and sample variance from an aggregate
-def finalize(existingAggregate):
-    (count, mean, M2) = existingAggregate
-    (mean, variance, sampleVariance) = (mean, M2/count, M2/(count - 1)) 
-    if count < 2:
-        return float('nan')
-    else:
-        return (mean, variance, sampleVariance)
+    def reset(self):
+        self.count, self.mean, self.m2, self.var = 0.0, 0.0, 0.0, 0.0
