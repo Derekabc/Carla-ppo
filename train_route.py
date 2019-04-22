@@ -14,7 +14,7 @@ from skimage import transform
 
 from ppo import PPO
 from vae.models import ConvVAE, MlpVAE
-from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
+from CarlaEnv.carla_lap_env import CarlaRouteEnv as CarlaEnv
 from CarlaEnv.wrappers import angle_diff, vector
 from utils import VideoRecorder, compute_gae
 from common import reward_fn, create_encode_state_fn, preprocess_frame, load_vae

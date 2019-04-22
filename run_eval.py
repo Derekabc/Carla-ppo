@@ -14,22 +14,22 @@ from skimage import transform
 
 from ppo import PPO
 from vae.models import ConvVAE, MlpVAE
-from CarlaEnv.carla_env import CarlaLapEnv as CarlaEnv
+from CarlaEnv.carla_lap_env import CarlaLapEnv as CarlaEnv
 from CarlaEnv.wrappers import angle_diff, vector
 from utils import VideoRecorder, compute_gae
 from common import create_encode_state_fn, reward_fn, load_vae
 
-def run_eval(test_env, model, video_filename=None):
+def run_eval(env, model, video_filename=None):
     # Init test env
-    state, terminal, total_reward = test_env.reset(is_training=False), False, 0
-    rendered_frame = test_env.render(mode="rgb_array")
+    state, terminal, total_reward = env.reset(is_training=False), False, 0
+    rendered_frame = env.render(mode="rgb_array")
 
     # Init video recording
     if video_filename is not None:
-        print("Recording video to {} ({}x{}x{}@{}fps)".format(video_filename, *rendered_frame.shape, int(test_env.average_fps)))
+        print("Recording video to {} ({}x{}x{}@{}fps)".format(video_filename, *rendered_frame.shape, int(env.average_fps)))
         video_recorder = VideoRecorder(video_filename,
                                        frame_size=rendered_frame.shape,
-                                       fps=test_env.average_fps)
+                                       fps=env.average_fps)
         video_recorder.add_frame(rendered_frame)
     else:
         video_recorder = None
@@ -38,19 +38,20 @@ def run_eval(test_env, model, video_filename=None):
 
     # While non-terminal state
     while not terminal:
-        test_env.extra_info.append("Episode {}".format(episode_idx))
-        test_env.extra_info.append("Running eval...".format(episode_idx))
-        test_env.extra_info.append("")
+        env.extra_info.append("Episode {}".format(episode_idx))
+        env.extra_info.append("Running eval...".format(episode_idx))
+        env.extra_info.append("")
 
-        # Take deterministic actions at test time (noise_scale=0)
-        action, _ = model.predict([state], greedy=True)
-        state, reward, terminal, info = test_env.step(action)
+        # Take deterministic actions at test time (std=0)
+        sub_policy = env.current_road_maneuver - 1
+        action, _ = model.predict(state, sub_policy, greedy=True)
+        state, reward, terminal, info = env.step(action)
 
         if info["closed"] == True:
             break
 
         # Add frame
-        rendered_frame = test_env.render(mode="rgb_array")
+        rendered_frame = env.render(mode="rgb_array")
         if video_recorder is not None:
             video_recorder.add_frame(rendered_frame)
         total_reward += reward

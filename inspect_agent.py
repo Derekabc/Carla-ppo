@@ -184,7 +184,7 @@ def generate(z, encoded_state):
     ui.update_image(generated_image.reshape(vae_input_shape) * 255)
 
     # Update output action
-    action, _ = model.predict([encoded_state], greedy=True)
+    action, _ = model.predict(encoded_state, greedy=True)
     for i in range(len(action)):
         ui.action_vars[i].set(action[i])
 

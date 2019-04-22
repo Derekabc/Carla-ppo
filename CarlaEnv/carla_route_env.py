@@ -8,10 +8,12 @@ from collections import deque
 from gym.utils import seeding
 from wrappers import *
 from hud import HUD
-from planner import plan_route, compute_route_waypoints
+from planner import plan_route, compute_route_waypoints, RoadOption
 
 # TODO:
 # Some solution to avoid using the same env instance for training and eval
+# - Just found out gym provides ObservationWrapper and RewardWrapper classes.
+#   Should replace encode_state_fn and reward_fn with these.
 
 class CarlaRouteEnv(gym.Env):
     """
@@ -146,8 +148,7 @@ class CarlaRouteEnv(gym.Env):
         
         # Generate waypoints along the lap
         self.start_wp, self.end_wp = [self.world.map.get_waypoint(p) for p in np.random.choice(self.world.map.get_spawn_points(), 2, replace=False)]
-        route = compute_route_waypoints(*plan_route(self.start_wp, self.end_wp), hop_resolution=1.0)
-        self.route_waypoints = [p[0] for p in route]
+        self.route_waypoints = compute_route_waypoints(*plan_route(self.start_wp, self.end_wp), hop_resolution=1.0)
         self.current_waypoint_index = 0
         self.vehicle.set_transform(self.start_wp.transform)
         self.vehicle.set_simulate_physics(False) # Reset the car's physics
@@ -183,10 +184,19 @@ class CarlaRouteEnv(gym.Env):
         self.closed = True
 
     def render(self, mode="human"):
+        # Get maneuver name
+        if self.current_road_maneuver == RoadOption.LANEFOLLOW: maneuver = "Lane Follow"
+        elif self.current_road_maneuver == RoadOption.LEFT:     maneuver = "Left"
+        elif self.current_road_maneuver == RoadOption.RIGHT:    maneuver = "Right"
+        elif self.current_road_maneuver == RoadOption.STRAIGHT: maneuver = "Straight"
+        elif self.current_road_maneuver == RoadOption.VOID:     maneuver = "VOID"
+        else:                                                   maneuver = "INVALID"
+
         # Add metrics to HUD
         self.extra_info.extend([
             "Reward: % 19.2f" % self.last_reward,
             "",
+            "Maneuver:      % 11s"         % maneuver,
             "Route completion:  % 7.2f %%" % (self.route_completion * 100.0),
             "Distance traveled: % 7d m"    % self.distance_traveled,
             "Center deviance:   % 7.2f m"  % self.distance_from_center,
@@ -266,8 +276,8 @@ class CarlaRouteEnv(gym.Env):
         self.current_waypoint_index = waypoint_index
 
         # Calculate deviation from center of the lane
-        self.current_waypoint = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
-        self.next_waypoint    = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
+        self.current_waypoint, self.current_road_maneuver = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
+        self.next_waypoint, self.next_road_maneuver       = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
         self.distance_from_center = distance_to_line(vector(self.current_waypoint.transform.location),
                                                      vector(self.next_waypoint.transform.location),
                                                      vector(transform.location))
@@ -286,7 +296,7 @@ class CarlaRouteEnv(gym.Env):
         # Get lap count
         self.route_completion = self.current_waypoint_index / len(self.route_waypoints)
         if self.route_completion >= 1:
-            # End after 1 laps
+            # End on route completion
             self.terminal_state = True
         
         # Call external reward fn

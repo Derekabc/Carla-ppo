@@ -131,8 +131,7 @@ class CarlaLapEnv(gym.Env):
 
         # Generate waypoints along the lap
         start_waypoint = self.world.map.get_waypoint(self.world.map.get_spawn_points()[1].location)
-        lap = compute_route_waypoints(start_waypoint, start_waypoint, [RoadOption.STRAIGHT] * 7, hop_resolution=1.0)
-        self.route_waypoints = [p[0] for p in lap]
+        self.route_waypoints = compute_route_waypoints(start_waypoint, start_waypoint, [RoadOption.STRAIGHT] * 7, hop_resolution=1.0)
         self.current_waypoint_index = 0
         self.checkpoint_waypoint_index = 0
 
@@ -151,12 +150,13 @@ class CarlaLapEnv(gym.Env):
         self.vehicle.tick()
         if is_training:
             # Teleport vehicle to last checkpoint
-            transform = self.route_waypoints[self.checkpoint_waypoint_index % len(self.route_waypoints)].transform
+            waypoint, _ = self.route_waypoints[self.checkpoint_waypoint_index % len(self.route_waypoints)]
             self.current_waypoint_index = self.checkpoint_waypoint_index
         else:
             # Teleport vehicle to start of track
-            transform = self.route_waypoints[0].transform
+            waypoint, _ = self.route_waypoints[0]
             self.current_waypoint_index = 0
+        transform = waypoint.transform
         transform.location += carla.Location(z=1.0)
         self.vehicle.set_transform(transform)
         self.vehicle.set_simulate_physics(False) # Reset the car's physics
@@ -193,10 +193,19 @@ class CarlaLapEnv(gym.Env):
         self.closed = True
 
     def render(self, mode="human"):
+        # Get maneuver name
+        if self.current_road_maneuver == RoadOption.LANEFOLLOW: maneuver = "Lane Follow"
+        elif self.current_road_maneuver == RoadOption.LEFT:     maneuver = "Left"
+        elif self.current_road_maneuver == RoadOption.RIGHT:    maneuver = "Right"
+        elif self.current_road_maneuver == RoadOption.STRAIGHT: maneuver = "Straight"
+        elif self.current_road_maneuver == RoadOption.VOID:     maneuver = "VOID"
+        else:                                                   maneuver = "INVALID"
+
         # Add metrics to HUD
         self.extra_info.extend([
             "Reward: % 19.2f" % self.last_reward,
             "",
+            "Maneuver:      % 11s"         % maneuver,
             "Laps completed:    % 7.2f %%" % (self.laps_completed * 100.0),
             "Distance traveled: % 7d m"    % self.distance_traveled,
             "Center deviance:   % 7.2f m"  % self.distance_from_center,
@@ -276,8 +285,8 @@ class CarlaLapEnv(gym.Env):
         self.current_waypoint_index = waypoint_index
 
         # Calculate deviation from center of the lane
-        self.current_waypoint = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
-        self.next_waypoint    = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
+        self.current_waypoint, self.current_road_maneuver = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
+        self.next_waypoint, self.next_road_maneuver       = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
         self.distance_from_center = distance_to_line(vector(self.current_waypoint.transform.location),
                                                      vector(self.next_waypoint.transform.location),
                                                      vector(transform.location))
