@@ -185,7 +185,7 @@ class CarlaRouteEnv(gym.Env):
 
     def render(self, mode="human"):
         # Get maneuver name
-        if self.current_road_maneuver == RoadOption.LANEFOLLOW: maneuver = "Lane Follow"
+        if self.current_road_maneuver == RoadOption.LANEFOLLOW: maneuver = "Follow Lane"
         elif self.current_road_maneuver == RoadOption.LEFT:     maneuver = "Left"
         elif self.current_road_maneuver == RoadOption.RIGHT:    maneuver = "Right"
         elif self.current_road_maneuver == RoadOption.STRAIGHT: maneuver = "Straight"
@@ -196,7 +196,7 @@ class CarlaRouteEnv(gym.Env):
         self.extra_info.extend([
             "Reward: % 19.2f" % self.last_reward,
             "",
-            "Maneuver:      % 11s"         % maneuver,
+            "Maneuver:        % 11s"       % maneuver,
             "Route completion:  % 7.2f %%" % (self.route_completion * 100.0),
             "Distance traveled: % 7d m"    % self.distance_traveled,
             "Center deviance:   % 7.2f m"  % self.distance_from_center,
@@ -266,7 +266,7 @@ class CarlaRouteEnv(gym.Env):
         for _ in range(len(self.route_waypoints)):
             # Check if we passed the next waypoint along the route
             next_waypoint_index = waypoint_index + 1
-            wp = self.route_waypoints[next_waypoint_index % len(self.route_waypoints)]
+            wp, _ = self.route_waypoints[next_waypoint_index % len(self.route_waypoints)]
             dot = np.dot(vector(wp.transform.get_forward_vector())[:2],
                          vector(transform.location - wp.transform.location)[:2])
             if dot > 0.0: # Did we pass the waypoint?

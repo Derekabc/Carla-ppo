@@ -114,12 +114,12 @@ class PPO():
 
         # Gather filtered output of each sub-policy in these lists
         self.policies, prob_ratios, policy_losses, value_losses, entropy_losses = [], [], [], [], []
-        values, action_means, action_logstds, sampled_actions = [], [], [], [], []
+        values, action_means, action_logstds, sampled_actions = [], [], [], []
 
         # Create graphs for each sub-policy
         for sub_policy in range(self.num_sub_policies):
             policy, _, prob_ratio, policy_loss, value_loss, entropy_loss = \
-                self._create_sub_policy(sub_policy, input_states, taken_actions, advantage, returns)
+                self._create_sub_policy(sub_policy, self.input_states, self.taken_actions, self.advantage, self.returns, epsilon, value_scale, entropy_scale, action_space, initial_std)
             self.policies.append(policy)
 
             # Filter out only active sub-policy value
@@ -131,7 +131,7 @@ class PPO():
             values.append(policy.value * sub_policy_filter)
             action_means.append(policy.action_mean * sub_policy_filter)
             action_logstds.append(policy.action_logstd * sub_policy_filter)
-            sampled_actions.append(policy.sampled_actions * sub_policy_filter)
+            sampled_actions.append(policy.sampled_action * sub_policy_filter)
 
         # Reduce sum over all sub-policies (where only the active sub-policy will be non-zero due to previous filtering)
         self.policy_loss = tf.reduce_sum(policy_losses, axis=0)
@@ -179,7 +179,7 @@ class PPO():
 
         # Set up stepwise training summaries
         summaries = []
-        for i in range(num_actions):
+        for i in range(self.num_actions):
             summaries.append(tf.summary.histogram("train_actor_step/action_{}/taken_actions".format(i), self.taken_actions[:, i]))
             summaries.append(tf.summary.histogram("train_actor_step/action_{}/mean".format(i), self.action_mean[:, i]))
             summaries.append(tf.summary.histogram("train_actor_step/action_{}/std".format(i), tf.exp(self.action_logstd[i])))
@@ -206,7 +206,7 @@ class PPO():
         self.dirs = [self.checkpoint_dir, self.log_dir, self.video_dir]
         for d in self.dirs: os.makedirs(d, exist_ok=True)
 
-    def _create_sub_policy(self, sub_policy, input_states, taken_actions, advantage, returns):
+    def _create_sub_policy(self, sub_policy, input_states, taken_actions, advantage, returns, epsilon, value_scale, entropy_scale, action_space, initial_std):
         # Create policy graphs
         policy     = PolicyGraph(input_states, taken_actions, action_space, "policy_{}".format(sub_policy), initial_std=initial_std)
         policy_old = PolicyGraph(input_states, taken_actions, action_space, "policy_old_{}".format(sub_policy), initial_std=initial_std)

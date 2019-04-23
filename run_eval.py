@@ -43,7 +43,7 @@ def run_eval(env, model, video_filename=None):
         env.extra_info.append("")
 
         # Take deterministic actions at test time (std=0)
-        sub_policy = env.current_road_maneuver - 1
+        sub_policy = env.current_road_maneuver.value - 1
         action, _ = model.predict(state, sub_policy, greedy=True)
         state, reward, terminal, info = env.step(action)
 
@@ -94,7 +94,8 @@ if __name__ == "__main__":
     # Create model
     print("Creating model...")
     input_shape = np.array([vae.z_dim + len(measurements_to_include)])
-    model = PPO(input_shape, env.action_space, model_dir=os.path.join("models", args.model_name))
+    model = PPO(input_shape, env.action_space, num_sub_policies=4,
+                model_dir=os.path.join("models", args.model_name))
     model.init_session(init_logging=False)
     model.load_latest_checkpoint()
 
