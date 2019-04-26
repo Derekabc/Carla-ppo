@@ -197,12 +197,12 @@ class PPO():
             summaries.append(tf.summary.scalar("predict_actor/active_sub_policy", self.active_sub_policy[0]))
         self.stepwise_prediction_summaries = tf.summary.merge(summaries)
 
-        # Set up model saver and dirs
-        self.model_dir = model_dir
+        # Setup model saver and dirs
         self.saver = tf.train.Saver()
+        self.model_dir = model_dir
         self.checkpoint_dir = "{}/checkpoints/".format(self.model_dir)
-        self.log_dir   = "{}/logs/".format(self.model_dir)
-        self.video_dir = "{}/videos/".format(self.model_dir)
+        self.log_dir        = "{}/logs/".format(self.model_dir)
+        self.video_dir      = "{}/videos/".format(self.model_dir)
         self.dirs = [self.checkpoint_dir, self.log_dir, self.video_dir]
         for d in self.dirs: os.makedirs(d, exist_ok=True)
 
@@ -251,7 +251,8 @@ class PPO():
                 self.saver.restore(self.sess, model_checkpoint)
                 print("Model checkpoint restored from {}".format(model_checkpoint))
                 return True
-            except:
+            except Exception as e:
+                print(e)
                 return False
         
     def train(self, input_states, taken_actions, returns, advantage, active_sub_policy):

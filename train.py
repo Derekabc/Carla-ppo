@@ -58,9 +58,9 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
 
     # Create env
     print("Creating environment")
-    env = CarlaEnv(obs_res=(160, 80),
+    env = CarlaEnv(obs_res=(160, 80), action_smoothing=action_smoothing,
                    encode_state_fn=encode_state_fn, reward_fn=reward_fn,
-                   action_smoothing=action_smoothing, fps=fps)
+                   synchronous=True, fps=fps)
     env.seed(0)
     best_eval_reward = -float("inf")
 
@@ -212,7 +212,7 @@ if __name__ == "__main__":
     parser.add_argument("--discount_factor", type=float, default=0.99)
     parser.add_argument("--gae_lambda", type=float, default=0.95)
     parser.add_argument("--ppo_epsilon", type=float, default=0.2)
-    parser.add_argument("--initial_std", type=float, default=0.1)
+    parser.add_argument("--initial_std", type=float, default=1.0)#0.1)
     parser.add_argument("--value_scale", type=float, default=1.0)
     parser.add_argument("--entropy_scale", type=float, default=0.01)
     parser.add_argument("--horizon", type=int, default=128)
