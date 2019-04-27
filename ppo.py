@@ -123,18 +123,18 @@ class PPO():
             self.policies.append(policy)
 
             # Filter out only active sub-policy value
-            sub_policy_filter = self.active_sub_policy == sub_policy
+            sub_policy_filter = tf.cast(tf.equal(self.active_sub_policy, sub_policy), tf.float32)
             policy_losses.append(policy_loss * sub_policy_filter)
             value_losses.append(value_loss * sub_policy_filter)
             entropy_losses.append(entropy_loss * sub_policy_filter)
             prob_ratios.append(prob_ratio * sub_policy_filter)
             values.append(policy.value * sub_policy_filter)
-            action_means.append(policy.action_mean * sub_policy_filter)
-            action_logstds.append(policy.action_logstd * sub_policy_filter)
+            action_means.append(policy.action_mean * tf.expand_dims(sub_policy_filter, axis=1))
+            action_logstds.append(tf.expand_dims(policy.action_logstd, axis=0) * tf.expand_dims(sub_policy_filter, axis=1))
             sampled_actions.append(policy.sampled_action * sub_policy_filter)
 
         # Reduce sum over all sub-policies (where only the active sub-policy will be non-zero due to previous filtering)
-        self.policy_loss = tf.reduce_sum(policy_losses, axis=0)
+        self.policy_loss = tf.reduce_sum(policy_losses, axis=0) 
         self.value_loss = tf.reduce_sum(value_losses, axis=0)
         self.entropy_loss = tf.reduce_sum(entropy_losses, axis=0)
         self.prob_ratio = tf.reduce_sum(prob_ratios, axis=0)
@@ -170,7 +170,7 @@ class PPO():
         for i in range(self.num_actions):
             metrics["train_actor/action_{}/taken_actions".format(i)] = tf.metrics.mean(tf.reduce_mean(self.taken_actions[:, i]))
             metrics["train_actor/action_{}/mean".format(i)] = tf.metrics.mean(tf.reduce_mean(self.action_mean[:, i]))
-            metrics["train_actor/action_{}/std".format(i)] = tf.metrics.mean(tf.reduce_mean(tf.exp(self.action_logstd[i])))
+            metrics["train_actor/action_{}/std".format(i)] = tf.metrics.mean(tf.reduce_mean(tf.exp(self.action_logstd[:, i])))
         metrics["train/prob_ratio"] = tf.metrics.mean(tf.reduce_mean(self.prob_ratio))
         metrics["train/returns"] = tf.metrics.mean(tf.reduce_mean(self.returns))
         metrics["train/advantage"] = tf.metrics.mean(tf.reduce_mean(self.advantage))
@@ -182,7 +182,7 @@ class PPO():
         for i in range(self.num_actions):
             summaries.append(tf.summary.histogram("train_actor_step/action_{}/taken_actions".format(i), self.taken_actions[:, i]))
             summaries.append(tf.summary.histogram("train_actor_step/action_{}/mean".format(i), self.action_mean[:, i]))
-            summaries.append(tf.summary.histogram("train_actor_step/action_{}/std".format(i), tf.exp(self.action_logstd[i])))
+            summaries.append(tf.summary.histogram("train_actor_step/action_{}/std".format(i), tf.exp(self.action_logstd[:, i])))
         summaries.append(tf.summary.histogram("train_step/input_states", self.input_states))
         summaries.append(tf.summary.histogram("train_step/prob_ratio", self.prob_ratio))
         summaries.append(tf.summary.histogram("train_step/active_sub_policy", self.active_sub_policy))
@@ -193,8 +193,8 @@ class PPO():
         for i in range(self.num_actions):
             summaries.append(tf.summary.scalar("predict_actor/action_{}/sampled_action".format(i), self.sampled_action[0, i]))
             summaries.append(tf.summary.scalar("predict_actor/action_{}/mean".format(i), self.action_mean[0, i]))
-            summaries.append(tf.summary.scalar("predict_actor/action_{}/std".format(i), tf.exp(self.action_logstd[i])))
-            summaries.append(tf.summary.scalar("predict_actor/active_sub_policy", self.active_sub_policy[0]))
+            summaries.append(tf.summary.scalar("predict_actor/action_{}/std".format(i), tf.exp(self.action_logstd[0, i])))
+        summaries.append(tf.summary.scalar("predict_actor/active_sub_policy", self.active_sub_policy[0]))
         self.stepwise_prediction_summaries = tf.summary.merge(summaries)
 
         # Setup model saver and dirs

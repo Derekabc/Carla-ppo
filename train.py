@@ -120,7 +120,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
         while not terminal_state:
             states, taken_actions, values, rewards, dones, sub_policies = [], [], [], [], [], []
             for _ in range(horizon):
-                sub_policy = env.current_road_maneuver - 1
+                sub_policy = env.current_road_maneuver.value - 1
                 action, value = model.predict(state, sub_policy, write_to_summary=True)
 
                 # Perform action
@@ -152,7 +152,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
                     break
 
             # Calculate last value (bootstrap value)
-            _, last_values = model.predict(state) # []
+            _, last_values = model.predict(state, sub_policy) # []
             
             # Compute GAE
             advantages = compute_gae(rewards, values, last_values, dones, discount_factor, gae_lambda)
@@ -221,7 +221,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--action_smoothing", type=float, default=0.0)
-    parser.add_argument("--vae_model", type=str, default="bce_cnn_zdim64_beta1_kl_tolerance0.0_data")
+    parser.add_argument("--vae_model", type=str, default="vae/models/seg_bce_cnn_zdim64_beta1_kl_tolerance0.0_data/")
     parser.add_argument("--vae_model_type", type=str, default=None)
     parser.add_argument("--vae_z_dim", type=int, default=None)
 
