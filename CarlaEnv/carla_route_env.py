@@ -319,10 +319,10 @@ class CarlaRouteEnv(gym.Env):
         self.center_lane_deviation += self.distance_from_center
 
         # DEBUG: Draw path
-        self._draw_path(life_time=5.0, skip=10)
+        #self._draw_path(life_time=5.0, skip=10)
 
         # DEBUG: Draw current waypoint
-        self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=5.0)
+        #self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=5.0)
 
         # Calculate distance traveled
         self.distance_traveled += self.previous_location.distance(transform.location)
@@ -332,7 +332,7 @@ class CarlaRouteEnv(gym.Env):
         self.speed_accum += self.vehicle.get_speed()
         
         # Get lap count
-        self.route_completion = self.current_waypoint_index / len(self.route_waypoints)
+        self.route_completion = (self.current_waypoint_index + 1) / len(self.route_waypoints)
         if self.route_completion >= 1:
             # End on route completion
             self.terminal_state = True
