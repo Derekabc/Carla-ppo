@@ -109,7 +109,6 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
             model.write_value_to_summary("eval/average_speed", 3.6 * env.speed_accum / env.step_count, episode_idx)
             model.write_value_to_summary("eval/center_lane_deviation", env.center_lane_deviation, episode_idx)
             model.write_value_to_summary("eval/average_center_lane_deviation", env.center_lane_deviation / env.step_count, episode_idx)
-            model.write_value_to_summary("eval/route_completion", env.route_completion, episode_idx)
             if eval_reward > best_eval_reward:
                 model.save()
 
@@ -134,7 +133,7 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
                     "Episode {}".format(episode_idx),
                     "Training...",
                     "",
-                    "Value:  % 19.2f" % value
+                    "Value:  % 20.2f" % value
                 ])
 
                 env.render()
@@ -200,7 +199,6 @@ def train(params, model_name, eval_interval=10, record_eval=True, restart=False)
         model.write_value_to_summary("train/center_lane_deviation", env.center_lane_deviation, episode_idx)
         model.write_value_to_summary("train/average_center_lane_deviation", env.center_lane_deviation / env.step_count, episode_idx)
         model.write_value_to_summary("train/distance_over_deviation", env.distance_traveled / env.center_lane_deviation, episode_idx)
-        model.write_value_to_summary("train/route_completion", env.route_completion, episode_idx)
         model.write_episodic_summaries()
 
 if __name__ == "__main__":

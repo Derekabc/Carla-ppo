@@ -21,7 +21,7 @@ from common import create_encode_state_fn, reward_fn, load_vae
 
 def run_eval(env, model, video_filename=None):
     # Init test env
-    state, terminal, total_reward = env.reset(is_training=False), False, 0
+    state, terminal, total_reward = env.reset(), False, 0
     rendered_frame = env.render(mode="rgb_array")
 
     # Init video recording

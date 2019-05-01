@@ -103,6 +103,7 @@ class CarlaRouteEnv(gym.Env):
         self.action_smoothing = action_smoothing
         self.encode_state_fn = (lambda x: x) if not callable(encode_state_fn) else encode_state_fn
         self.reward_fn = (lambda x: 0) if not callable(reward_fn) else reward_fn
+        self.max_distance = 3000 # m
 
         self.world = None
         try:
@@ -148,7 +149,32 @@ class CarlaRouteEnv(gym.Env):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]
 
-    def reset(self, is_training=True):
+    def reset(self):
+        # Create new route
+        self.num_routes_completed = -1
+        self.new_route()
+
+        # Set env vars
+        self.terminal_state = False # Set to True when we want to end episode
+        self.closed = False         # Set to True when ESC is pressed
+        self.extra_info = []        # List of extra info shown on the HUD
+        self.observation = self.observation_buffer = None   # Last received observation
+        self.viewer_image = self.viewer_image_buffer = None # Last received image to show in the viewer
+        self.start_t = time.time()
+        self.step_count = 0
+        
+        # Init metrics
+        self.total_reward = 0.0
+        self.previous_location = self.vehicle.get_transform().location
+        self.distance_traveled = 0.0
+        self.center_lane_deviation = 0.0
+        self.speed_accum = 0.0
+        self.routes_completed = 0.0
+
+        # Return initial observation
+        return self.step(None)[0]
+
+    def new_route(self):
         # Do a soft reset (teleport vehicle)
         self.vehicle.control.steer = float(0.0)
         self.vehicle.control.throttle = float(0.0)
@@ -159,6 +185,7 @@ class CarlaRouteEnv(gym.Env):
         self.start_wp, self.end_wp = [self.world.map.get_waypoint(spawn.location) for spawn in np.random.choice(self.world.map.get_spawn_points(), 2, replace=False)]
         self.route_waypoints = compute_route_waypoints(self.world.map, self.start_wp, self.end_wp, resolution=1.0)
         self.current_waypoint_index = 0
+        self.num_routes_completed += 1
         self.vehicle.set_transform(self.start_wp.transform)
         self.vehicle.set_simulate_physics(False) # Reset the car's physics
         self.vehicle.set_simulate_physics(True)
@@ -175,27 +202,7 @@ class CarlaRouteEnv(gym.Env):
                     pass
         else:
             time.sleep(2.0)
-
-        self.terminal_state = False # Set to True when we want to end episode
-        self.closed = False         # Set to True when ESC is pressed
-        self.extra_info = []        # List of extra info shown on the HUD
-        self.observation = self.observation_buffer = None   # Last received observation
-        self.viewer_image = self.viewer_image_buffer = None # Last received image to show in the viewer
-        self.start_t = time.time()
-        self.step_count = 0
-        self.is_training = is_training
         
-        # Metrics
-        self.total_reward = 0.0
-        self.previous_location = self.vehicle.get_transform().location
-        self.distance_traveled = 0.0
-        self.center_lane_deviation = 0.0
-        self.speed_accum = 0.0
-        self.route_completion = 0.0
-
-        # Return initial observation
-        return self.step(None)[0]
-
     def close(self):
         pygame.quit()
         if self.world is not None:
@@ -209,14 +216,14 @@ class CarlaRouteEnv(gym.Env):
         elif self.current_road_maneuver == RoadOption.RIGHT:    maneuver = "Right"
         elif self.current_road_maneuver == RoadOption.STRAIGHT: maneuver = "Straight"
         elif self.current_road_maneuver == RoadOption.VOID:     maneuver = "VOID"
-        else:                                                   maneuver = "INVALID"
+        else:                                                   maneuver = "INVALID(%i)".format(self.current_road_maneuver)
 
         # Add metrics to HUD
         self.extra_info.extend([
-            "Reward: % 19.2f" % self.last_reward,
+            "Reward: % 20.2f" % self.last_reward,
             "",
             "Maneuver:        % 11s"       % maneuver,
-            "Route completion:  % 7.2f %%" % (self.route_completion * 100.0),
+            "Routes completed:    % 7.2f"  % self.routes_completed,
             "Distance traveled: % 7d m"    % self.distance_traveled,
             "Center deviance:   % 7.2f m"  % self.distance_from_center,
             "Avg center dev:    % 7.2f m"  % (self.center_lane_deviation / self.step_count),
@@ -251,6 +258,10 @@ class CarlaRouteEnv(gym.Env):
         if self.closed:
             raise Exception("CarlaEnv.step() called after the environment was closed." +
                             "Check for info[\"closed\"] == True in the learning loop.")
+
+        # Create new route on route completion
+        if self.current_waypoint_index >= len(self.route_waypoints)-1:
+            self.new_route()
 
         # Asynchronous update logic
         if not self.synchronous:
@@ -310,19 +321,17 @@ class CarlaRouteEnv(gym.Env):
                 break
         self.current_waypoint_index = waypoint_index
 
+        # Check for route completion
+        if self.current_waypoint_index < len(self.route_waypoints)-1:
+            self.next_waypoint, self.next_road_maneuver = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
+        self.current_waypoint, self.current_road_maneuver = self.route_waypoints[self.current_waypoint_index % len(self.route_waypoints)]
+        self.routes_completed = self.num_routes_completed + (self.current_waypoint_index + 1) / len(self.route_waypoints)
+
         # Calculate deviation from center of the lane
-        self.current_waypoint, self.current_road_maneuver = self.route_waypoints[ self.current_waypoint_index    % len(self.route_waypoints)]
-        self.next_waypoint, self.next_road_maneuver       = self.route_waypoints[(self.current_waypoint_index+1) % len(self.route_waypoints)]
         self.distance_from_center = distance_to_line(vector(self.current_waypoint.transform.location),
                                                      vector(self.next_waypoint.transform.location),
                                                      vector(transform.location))
         self.center_lane_deviation += self.distance_from_center
-
-        # DEBUG: Draw path
-        #self._draw_path(life_time=5.0, skip=10)
-
-        # DEBUG: Draw current waypoint
-        #self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=5.0)
 
         # Calculate distance traveled
         self.distance_traveled += self.previous_location.distance(transform.location)
@@ -330,17 +339,21 @@ class CarlaRouteEnv(gym.Env):
 
         # Accumulate speed
         self.speed_accum += self.vehicle.get_speed()
-        
-        # Get lap count
-        self.route_completion = (self.current_waypoint_index + 1) / len(self.route_waypoints)
-        if self.route_completion >= 1:
-            # End on route completion
+
+        # Terminal on max distance
+        if self.distance_traveled >= self.max_distance:
             self.terminal_state = True
         
         # Call external reward fn
         self.last_reward = self.reward_fn(self)
         self.total_reward += self.last_reward
         self.step_count += 1
+
+        # DEBUG: Draw path
+        #self._draw_path(life_time=5.0, skip=10)
+
+        # DEBUG: Draw current waypoint
+        #self.world.debug.draw_point(self.current_waypoint.transform.location, color=carla.Color(0, 255, 0), life_time=5.0)
 
         # Check for ESC press
         pygame.event.pump()
@@ -419,7 +432,7 @@ if __name__ == "__main__":
     env = CarlaRouteEnv(obs_res=(160, 80), reward_fn=reward_fn)
     action = np.zeros(env.action_space.shape[0])
     while True:
-        env.reset(is_training=True)
+        env.reset()
         while True:
             # Process key inputs
             pygame.event.pump()
